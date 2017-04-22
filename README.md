@@ -38,3 +38,11 @@ Output the transcripts of what each person hears and says, and observe whether y
 # Part 3: 
 Compare the OTR protocol with the Silent Circle Instant Messaging Protocol (Moscaritolo, Belvin, and Zimmermann, 2012). What are the main differences? What are the advantages and disadvantages of each.
 
+# Our Resources
+
+Presentation:
+https://docs.google.com/presentation/d/1K8z5Zl-DjhNyIIha-kb68INW1Ab0ZQTN66wJSiyVygM/edit?usp=sharing
+
+Report:
+https://docs.google.com/document/d/1fHFa8VFFwmi9AgSEa6Wu5FwVHk8yHOTb_ne0FnUdHYY/edit?usp=sharing
+
