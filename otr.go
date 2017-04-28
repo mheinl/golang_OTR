@@ -51,7 +51,7 @@ func getPrime() *big.Int {
 	for {
 		// Writing random number into io.Reader object r in order to pass it to rand.Prime
 		r = strings.NewReader(strconv.Itoa(mrand.Int()))
-		randomPrime, err = crand.Prime(r, 32)
+		randomPrime, err = crand.Prime(r, 128)
 		// Do until there is no error anymore, then break and return prime number
 		if err == nil {
 			break
@@ -65,6 +65,11 @@ func getPrimitiveRoot(prime *big.Int) (int) {
 	return 1
 }
 
+// Function to create secret and public key
+func getDHSecretAndPublicKey(prime int, generator int) (int, int) {
+	var secretKey, publicKey int
+	return secretKey, publicKey
+}
 
 // Function to create user
 func createUser() () {
@@ -137,7 +142,7 @@ func main() {
 	
 	
 	// Debug getPrime
-	fmt.Println("Prime Number:" + getPrime().String())
+	fmt.Printf("%s\n", getPrime())
 
 
 
