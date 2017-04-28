@@ -9,8 +9,9 @@ import (
 	"crypto/cipher"
 	//"crypto/dsa"
 	"crypto/rsa"
-	//"crypto/md5"
+	"crypto/md5"
 	"crypto/x509"
+	//"crypto/sha256"
 	// alias mrand for "math/rand" and crand for "crypto/rand" to avoid confusion
 	mrand "math/rand"
 	crand "crypto/rand"
@@ -23,6 +24,8 @@ import (
 	"encoding/asn1"
 	"os"
 	//"reflect"
+	"encoding/hex"
+	//"unicode/utf8"
 
 )
 
@@ -187,26 +190,17 @@ func generatePEMKeys(privFileName string, pubFileName string, pubkey rsa.PublicK
 }
 
 
+func generateMD5Hash(sharedSecret int) (string) {
+	byteSecret := []byte(strconv.Itoa(sharedSecret))
+	h := md5.New()
+	h.Write([]byte(byteSecret))
+	base32str := hex.EncodeToString(h.Sum(nil))
+	return base32str
+}
+
 /***************** Main *****************/
 func main() {
 
-	// AES Encryption 
-	key := []byte("a very very very very secret key") // 32 bytes
-	plaintext := []byte("some really really really long plaintext")
-	fmt.Printf("%s\n", plaintext)
-	ciphertext, err := encrypt(key, plaintext)
-	if err != nil {
-	    log.Fatal(err)
-	}
-	fmt.Printf("%0x\n", ciphertext)
-	result, err := decrypt(key, ciphertext)
-	if err != nil {
-	    log.Fatal(err)
-	}
-	fmt.Printf("%s\n", result)
-	// End of AES Encryption
-	
-	
 	// Get initial seed to ensure randomness
 	mrand.Seed(time.Now().UTC().UnixNano())
 	
@@ -233,9 +227,29 @@ func main() {
 	fmt.Printf("Bob Private Key: \n%s\n", bobPrivateKeyPEM)
 	fmt.Printf("Alice Public Key: \n%s\n", alicePublicKeyPEM)
 	fmt.Printf("Alice Private Key: \n%s\n", alicePrivateKeyPEM)
+	
+	//MD5 Hash
+	testKey := generateMD5Hash(86)	//Given an integer (shared secret key from DHKE), create MD5 hash 32 characters long.
+	fmt.Println("Hash: ", testKey)
 
-
-	// End of RSA Key Generation
+	// AES Encryption 
+	key := []byte(testKey) // 32 bytes
+	plaintext := []byte("some really really really long plaintext")
+	fmt.Printf("Plaintext: ")
+	fmt.Printf("%s\n", plaintext)
+	ciphertext, err := encrypt(key, plaintext)
+	if err != nil {
+	    log.Fatal(err)
+	}
+	fmt.Printf("Ciphertext: ")
+	fmt.Printf("%0x\n", ciphertext)
+	result, err := decrypt(key, ciphertext)
+	if err != nil {
+	    log.Fatal(err)
+	}
+	fmt.Printf("Decrypted Plaintext: %s\n", result)
+	// End of AES Encryption
+	
 	
 }
 
