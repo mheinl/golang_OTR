@@ -6,16 +6,18 @@ import (
 	"strings"
 	"strconv"
 	"time"
+	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
 	//"crypto/dsa"
 	"crypto/rsa"
-	//"crypto/md5"
+	"crypto/md5"
 	"crypto/x509"
+	"crypto/sha256"
 	// alias mrand for "math/rand" and crand for "crypto/rand" to avoid confusion
 	mrand "math/rand"
 	crand "crypto/rand"
-	//"crypto/hmac"
+	"crypto/hmac"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +26,8 @@ import (
 	"encoding/asn1"
 	"os"
 	//"reflect"
+	"encoding/hex"
+	//"unicode/utf8"
 
 )
 
@@ -236,6 +240,7 @@ func generateKeys(bit int) (rsa.PublicKey, *rsa.PrivateKey, error){
 	return testPub, test, nil
 }
 
+// Generates PEM KEY files from RSA Keys
 func generatePEMKeys(privFileName string, pubFileName string, pubkey rsa.PublicKey, privkey *rsa.PrivateKey) ([]byte, []byte, error) {
 	privateKeyPEM, err := savePEMKey(privFileName,privkey)
 	checkError(err)
@@ -244,27 +249,61 @@ func generatePEMKeys(privFileName string, pubFileName string, pubkey rsa.PublicK
 	return privateKeyPEM, publicKeyPEM, nil
 }
 
+/********************************************* MD5 *********************************************/
+
+// Generates 32 character MD5 Hash from DH shared secret
+func generateMD5Hash(sharedSecret int) (string) {
+	byteSecret := []byte(strconv.Itoa(sharedSecret))
+	h := md5.New()
+	h.Write([]byte(byteSecret))
+	base32str := hex.EncodeToString(h.Sum(nil))
+	return base32str
+}
+
+/********************************************* HMAC *********************************************/
+
+// Checks if HMAC created from ciphertext and key is valid
+func checkMAC(message, messageMac, key []byte) bool {
+	mac := hmac.New(sha256.New, key)
+	mac.Write(message)
+	expectedMAC := mac.Sum(nil)
+	return hmac.Equal(messageMac, expectedMAC)
+}
+
+
+// Generates HMAC from ciphertext and key
+func generateMAC(message, key []byte) ([]byte) {
+	mac := hmac.New(sha256.New, key)
+	mac.Write(message)
+	hashMAC := mac.Sum(nil)
+	return hashMAC
+}
+
+/********************************************* Signatures *********************************************/
+
+// Generates Signature from RSA private key and hash
+func generateSignature(rsaPrivateKey *rsa.PrivateKey, hash []byte) ([]byte) {
+	signature, err := rsa.SignPKCS1v15(crand.Reader, rsaPrivateKey, crypto.SHA256, hash[:])
+	if err != nil {
+		fmt.Printf("Error from signing: %s\n", err)
+		return nil
+	}
+	return signature
+}
+
+// Checks if Signature created from hash and RSA private key is valid
+func verifySignature(rsaPublicKey *rsa.PublicKey, hash []byte, signature []byte) bool {
+	err := rsa.VerifyPKCS1v15(rsaPublicKey, crypto.SHA256, hash[:], signature)
+	if err != nil {
+		fmt.Printf("Error verification of signature: %s\n", err)
+		return false
+	}
+	return true
+}
 
 /********************************************* Main *********************************************/
 func main() {
 
-	// AES Encryption 
-	key := []byte("a very very very very secret key") // 32 bytes
-	plaintext := []byte("some really really really long plaintext")
-	fmt.Printf("%s\n", plaintext)
-	ciphertext, err := encrypt(key, plaintext)
-	if err != nil {
-	    log.Fatal(err)
-	}
-	fmt.Printf("%0x\n", ciphertext)
-	result, err := decrypt(key, ciphertext)
-	if err != nil {
-	    log.Fatal(err)
-	}
-	fmt.Printf("%s\n", result)
-	// End of AES Encryption
-	
-	
 	// Get initial seed to ensure randomness
 	mrand.Seed(time.Now().UTC().UnixNano())
 	
@@ -289,18 +328,45 @@ func main() {
 	fmt.Printf("Bob Private Key: \n%s\n", bobPrivateKeyPEM)
 	fmt.Printf("Alice Public Key: \n%s\n", alicePublicKeyPEM)
 	fmt.Printf("Alice Private Key: \n%s\n", alicePrivateKeyPEM)
+	
+	//MD5 Hash
+	testKey := generateMD5Hash(86)	//Given an integer (shared secret key from DHKE), create MD5 hash 32 characters long.
+	fmt.Println("Hash: ", testKey)
 
+	// AES Encryption 
+	key := []byte(testKey) // 32 bytes
+	plaintext := []byte("some really really really long plaintext")
+	fmt.Printf("Plaintext: ")
+	fmt.Printf("%s\n", plaintext)
+	ciphertext, err := encrypt(key, plaintext)
+	if err != nil {
+	    log.Fatal(err)
+	}
+	fmt.Printf("Ciphertext: ")
+	fmt.Printf("%0x\n", ciphertext)
+	result, err := decrypt(key, ciphertext)
+	if err != nil {
+	    log.Fatal(err)
+	}
+	fmt.Printf("Decrypted Plaintext: %s\n", result)
+	// End of AES Encryption
+	
 
-	// End of RSA Key Generation
-	
-	
-	
+	// HMAC
+	MACHash := generateMAC(ciphertext, key)
+	success := checkMAC(ciphertext, MACHash, key)
+	fmt.Println(MACHash)
+	fmt.Println(success)
+
+	// Signature
+	signature := generateSignature(alicePrivateKey, MACHash)
+	verified := verifySignature(&alicePublicKey, MACHash, signature)
+	fmt.Println(hex.EncodeToString(signature))
+	fmt.Println(verified)
+
 	// Debug DH
 	debugPrime := getPrime()
 	fmt.Printf("Prime %d\n", debugPrime)
-	
-	// Debug random in range of prime
-	//fmt.Printf("%d\n", mrand.Intn(debugPrime))
 	
 	// Prime factorization of phi(prime) = prime - 1
 	var phiOfPrime int64
@@ -308,6 +374,7 @@ func main() {
 	phiOfPrime = phiOfPrime - 1
 	fmt.Println(phiOfPrime, "->", primeFactorization(big.NewInt(phiOfPrime)))
 	fmt.Println(getPrimitiveRoot(debugPrime))
+	
 	
 }
 
