@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"math/big"
 	"strings"
 	"strconv"
@@ -27,28 +28,30 @@ import (
 )
 
 
-/***************** Define Objects *****************/
+/********************************************* Define Objects *********************************************/
 
 // User Object
 type User struct {
 	id int
 	message string
-	publicKey int
-	privateKey int
-	dhExponent int
+	rsaPublicKey int
+	rsaPrivateKey int
+	dhPublic int
+	dhSecret int
 }
 
 // Maybe Eve Object
 
 
-/***************** Basic Functions *****************/
+/********************************************* Diffie-Hellman *********************************************/
 
 
 // Function to generate prime number p
-func getPrime() *big.Int {
+func getPrime() int {
 	
 	var r io.Reader
 	var randomPrime *big.Int
+	var randomPrimeInt int
 	var err error
 	
 	// Generate as long as the result is a prime and not <nil>
@@ -56,18 +59,72 @@ func getPrime() *big.Int {
 	for {
 		// Writing random number into io.Reader object r in order to pass it to rand.Prime
 		r = strings.NewReader(strconv.Itoa(mrand.Int()))
-		randomPrime, err = crand.Prime(r, 128)
+		mrand.Seed(time.Now().UTC().UnixNano())
+		randomPrime, err = crand.Prime(r, 8)
 		// Do until there is no error anymore, then break and return prime number
 		if err == nil {
 			break
 		}
 	}
-	return randomPrime
+	randomPrimeInt, _ = strconv.Atoi(randomPrime.String())
+	return randomPrimeInt
+	//return randomPrime
 }
 
-// Function to get generator g (primitive root modulo p)
-func getPrimitiveRoot(prime *big.Int) (int) {
-	return 1
+
+// Function to factorize given non-prime into prime factors --> too hard to implement, took it from https://rosettacode.org/wiki/Prime_decomposition#Go
+var ZERO = big.NewInt(0)
+var ONE  = big.NewInt(1)
+
+func primeFactorization(n *big.Int) []*big.Int {
+	res := []*big.Int{}
+	mod, div := new(big.Int), new(big.Int)
+	for i := big.NewInt(2); i.Cmp(n) != 1; {
+		div.DivMod(n, i, mod)
+		for mod.Cmp(ZERO) == 0 {
+			res = append(res, new(big.Int).Set(i))
+			n.Set(div)
+			div.DivMod(n, i, mod)
+		}
+		i.Add(i, ONE)
+	}
+	return res
+}
+
+
+// Function to get generator g (primitive root modulo p) --> Implemented test routine described in https://en.wikipedia.org/wiki/Primitive_root_modulo_n#Finding_primitive_roots
+func getPrimitiveRoot(prime int) (int) {
+	var phiOfPrime int
+	var generator int
+	var equals1 bool
+	// Phi of a prime is always prime - 1
+	phiOfPrime = prime - 1
+	// Find all of phiOfPrime's prime factors
+	primeFactors := primeFactorization(big.NewInt(int64(phiOfPrime)))
+	
+	// randomly generate numbers and test if they are generators until one is found
+	for i := 2; i < phiOfPrime; i++ {
+		// randomly generate number in range 0 to prime-1
+		equals1 = false
+		fmt.Printf("i: %d\n", i)		
+		for _, factor := range primeFactors{
+			// cast *big.Int to int
+			factorInt, _ := strconv.Atoi(factor.String())
+			fmt.Println(math.Mod((math.Pow(float64(i), float64(phiOfPrime/factorInt))), float64(prime)))
+			if ((math.Mod((math.Pow(float64(i), float64(phiOfPrime/factorInt))), float64(prime)))==1) {
+				equals1 = true
+			}
+		}
+		// If testing for every factor was successful (which means, the testing term never equaled 1), break loop and return found generator. Otherwise test another potential generator
+		fmt.Println(equals1)
+		if (equals1 == false) {
+			generator = i
+			break
+		}
+		
+	}
+
+	return generator
 }
 
 // Function to create secret and public key
@@ -81,7 +138,7 @@ func createUser() () {
 	return
 }
 
-
+/********************************************* AES *********************************************/
 
 // See alternate IV creation from ciphertext below
 //var iv = []byte{35, 46, 57, 24, 85, 35, 24, 74, 87, 35, 88, 98, 66, 32, 14, 05}
@@ -126,6 +183,7 @@ func decrypt(key, text []byte) ([]byte, error) {
 	return text, nil
 }
 
+/********************************************* RSA *********************************************/
 
 //Saves private key as pem file and returns private key as pem byte array.
 func savePEMKey(fileName string, key *rsa.PrivateKey) ([]byte, error){
@@ -187,7 +245,7 @@ func generatePEMKeys(privFileName string, pubFileName string, pubkey rsa.PublicK
 }
 
 
-/***************** Main *****************/
+/********************************************* Main *********************************************/
 func main() {
 
 	// AES Encryption 
@@ -211,8 +269,6 @@ func main() {
 	mrand.Seed(time.Now().UTC().UnixNano())
 	
 	
-	// Debug getPrime
-	fmt.Printf("%s\n", getPrime())
 	bitSize := 2048
 	
 	// RSA Key Generation
@@ -236,6 +292,22 @@ func main() {
 
 
 	// End of RSA Key Generation
+	
+	
+	
+	// Debug DH
+	debugPrime := getPrime()
+	fmt.Printf("Prime %d\n", debugPrime)
+	
+	// Debug random in range of prime
+	//fmt.Printf("%d\n", mrand.Intn(debugPrime))
+	
+	// Prime factorization of phi(prime) = prime - 1
+	var phiOfPrime int64
+	phiOfPrime = int64(debugPrime)
+	phiOfPrime = phiOfPrime - 1
+	fmt.Println(phiOfPrime, "->", primeFactorization(big.NewInt(phiOfPrime)))
+	fmt.Println(getPrimitiveRoot(debugPrime))
 	
 }
 
