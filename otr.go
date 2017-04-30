@@ -1,7 +1,6 @@
 package main
 
 import (
-	"math"
 	"math/big"
 	"strings"
 	"strconv"
@@ -27,7 +26,7 @@ import (
 	"os"
 	//"reflect"
 	"encoding/hex"
-	//"unicode/utf8"
+	//"unicode/utf-8"
 
 )
 
@@ -59,18 +58,19 @@ func getPrime() int {
 	var err error
 	
 	// Generate as long as the result is a prime and not <nil>
-	// 32 bit primes seem to be the best compromise between randomness and reliability
 	for {
 		// Writing random number into io.Reader object r in order to pass it to rand.Prime
-		r = strings.NewReader(strconv.Itoa(mrand.Int()))
 		mrand.Seed(time.Now().UTC().UnixNano())
-		randomPrime, err = crand.Prime(r, 8)
+		r = strings.NewReader(strconv.Itoa(mrand.Int()))
+		// 32 bit primes seem to be the best compromise between randomness and reliability
+		randomPrime, err = crand.Prime(r, 32)
 		// Do until there is no error anymore, then break and return prime number
 		if err == nil {
 			break
 		}
 	}
 	randomPrimeInt, _ = strconv.Atoi(randomPrime.String())
+	fmt.Printf("Randomly Generated Prime: %d\n", randomPrimeInt)
 	return randomPrimeInt
 	//return randomPrime
 }
@@ -101,46 +101,66 @@ func getPrimitiveRoot(prime int) (int) {
 	var phiOfPrime int
 	var generator int
 	var equals1 bool
+	var testExp big.Int
+	
 	// Phi of a prime is always prime - 1
 	phiOfPrime = prime - 1
+	fmt.Println(`ϕ(prime) =`, phiOfPrime)
+	
 	// Find all of phiOfPrime's prime factors
 	primeFactors := primeFactorization(big.NewInt(int64(phiOfPrime)))
+	fmt.Println("Prime Factors of", phiOfPrime, "are:", primeFactors)
 	
-	// randomly generate numbers and test if they are generators until one is found
+	// sequentially increase counter i and test if i is generator until smallest onne is found
 	for i := 2; i < phiOfPrime; i++ {
-		// randomly generate number in range 0 to prime-1
-		equals1 = false
-		fmt.Printf("i: %d\n", i)		
+		equals1 = false		
 		for _, factor := range primeFactors{
-			// cast *big.Int to int
-			factorInt, _ := strconv.Atoi(factor.String())
-			fmt.Println(math.Mod((math.Pow(float64(i), float64(phiOfPrime/factorInt))), float64(prime)))
-			if ((math.Mod((math.Pow(float64(i), float64(phiOfPrime/factorInt))), float64(prime)))==1) {
+			// cast *big.Int return value from primeFactorization to int
+			factorInt, _:= strconv.Atoi(factor.String())
+			
+			// Compute modular exponentiation: i^(phiOfPrime/factorInt) mod prime
+			testExp.Exp(big.NewInt(int64(i)), big.NewInt(int64(phiOfPrime/factorInt)), big.NewInt(int64(prime)))
+			
+			// Compare result of modular exponentiation with 1, if equal, compare function returns 0. In this case, set equals1 to true. This means, current i is not a generator and loop while go on.
+			if (testExp.Cmp(big.NewInt(int64(1))) == 0) {
 				equals1 = true
 			}
 		}
-		// If testing for every factor was successful (which means, the testing term never equaled 1), break loop and return found generator. Otherwise test another potential generator
-		fmt.Println(equals1)
+		
+		// If testing for every factor was successful (which means, the testing term never equaled 1), break loop and return found generator. Otherwise test another potential generator.
 		if (equals1 == false) {
 			generator = i
+			fmt.Println("Smallest Primitive Root / Generator of", prime, "is", generator)
 			break
 		}
 		
 	}
-
 	return generator
 }
 
+
 // Function to create secret and public key
 func getDHSecretAndPublicKey(prime int, generator int) (int, int) {
-	var secretKey, publicKey int
-	return secretKey, publicKey
+	var ownDHsecret int
+	var publicKey big.Int
+	
+	ownDHsecret = mrand.Intn(prime)
+	
+	publicKey.Exp(big.NewInt(int64(generator)), big.NewInt(int64(ownDHsecret)), big.NewInt(int64(prime)))
+	
+	publicKeyInt, _:= strconv.Atoi(publicKey.String())
+	return ownDHsecret, publicKeyInt
 }
 
-// Function to create user
-func createUser() () {
-	return
+// Function to compute shared secret
+func getSharedSecret(ownDHSecret, partnerDHpublicKey int, prime int) (int) {
+	var sharedSecret big.Int
+	
+	sharedSecret.Exp(big.NewInt(int64(partnerDHpublicKey)), big.NewInt(int64(ownDHSecret)), big.NewInt(int64(prime)))
+	sharedSecretInt, _:= strconv.Atoi(sharedSecret.String())
+	return sharedSecretInt
 }
+
 
 /********************************************* AES *********************************************/
 
@@ -365,16 +385,35 @@ func main() {
 	fmt.Println(verified)
 
 	// Debug DH
-	debugPrime := getPrime()
-	fmt.Printf("Prime %d\n", debugPrime)
 	
-	// Prime factorization of phi(prime) = prime - 1
-	var phiOfPrime int64
-	phiOfPrime = int64(debugPrime)
-	phiOfPrime = phiOfPrime - 1
-	fmt.Println(phiOfPrime, "->", primeFactorization(big.NewInt(phiOfPrime)))
-	fmt.Println(getPrimitiveRoot(debugPrime))
+	// Generate random prime
+	prime := getPrime()
+	//debugPrime := 2857
 	
+	// Generate /primitive root generator
+	generator := getPrimitiveRoot(prime)
 	
+	// Generate DH secret and public key for Alice
+	AliceDHsecret, AliceDHpublicKey := getDHSecretAndPublicKey(prime, generator)
+	fmt.Println("Alice's DH Secret and Public Key:", AliceDHsecret, AliceDHpublicKey)
+	
+	// Generate DH secret and public key for Bob
+	BobDHsecret, BobDHpublicKey := getDHSecretAndPublicKey(prime, generator)
+	fmt.Println("Bob's DH Secret and Public Key:", BobDHsecret, BobDHpublicKey)
+	
+	// Let Alice compute Shared Secret
+	AliceSharedSecret := getSharedSecret(AliceDHsecret,BobDHpublicKey, prime)
+	
+	// Let Alice compute Shared Secret
+	BobSharedSecret := getSharedSecret(BobDHsecret,AliceDHpublicKey, prime)
+	
+	// Are they the same?
+	fmt.Println("Alice's Shared Secret:", AliceSharedSecret)
+	fmt.Println("Bob's Shared Secret:", BobSharedSecret)
+	if (AliceSharedSecret == BobSharedSecret){
+		fmt.Println("SUCCESS!!!!! :-)")
+	}
+	
+
 }
 
