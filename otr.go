@@ -315,10 +315,12 @@ func verifySignature(rsaPublicKey *rsa.PublicKey, hash []byte, signature []byte)
 //var aSend = make(chan string)
 var aRecv = make(chan string)
 var aRecvInt = make(chan int)
+var aRecvVar = make(chan []byte)
 
 //var bSend = make(chan string)
 var bRecv = make(chan string)
 var bRecvInt = make(chan int)
+var bRecvVar = make(chan []byte)
 
 
 var wg sync.WaitGroup
@@ -327,8 +329,9 @@ var wg sync.WaitGroup
 type user struct {
 	id int
 	messages []string
-	rsaPublicKey int
-	rsaPrivateKey int
+	rsaPublicKey *rsa.PublicKey
+	rsaPrivateKey *rsa.PrivateKey
+	rsaPartnerPublicKey *rsa.PublicKey
 	dhPrime int
 	dhGenerator int
 	dhPublicOwn int
@@ -351,39 +354,71 @@ func alice(alice *user) {
 	alice.dhGenerator = getPrimitiveRoot(alice.dhPrime)
 	alice.dhSecret, alice.dhPublicOwn = getDHSecretAndPublicKey(alice.dhPrime, alice.dhGenerator)
 	
+	// Tri's Code
+	//MD5 Hash on DH Public for Alice --> Generates a String Hash
+	AliceDHPublicOwnHash := generateMD5Hash(alice.dhPublicOwn)
+
+	// Generate Signature for DH Public Hash using RSA Private Key and DH Public Hash for Alice
+	AliceDHPublicOwnSignature := generateSignature(alice.rsaPrivateKey, []byte(AliceDHPublicOwnHash))
+	// End of Tri's Debug Code
+
+
 	// Send Parameters to Bob
 	bRecvInt <- alice.dhPrime
 	bRecvInt <- alice.dhGenerator
 	bRecvInt <- alice.dhPublicOwn
+	// Send PublicOwn Signature, Bvob will verify
+	bRecvVar <- AliceDHPublicOwnSignature
+
+
 	// Receive Bob's DH Public Key
 	alice.dhPublicPartner = <-aRecvInt
+	//MD5 Hash on DH Public for Bob --> Generates a String Hash
+	BobDHPublicPartnerHash := generateMD5Hash(alice.dhPublicPartner)
+	// Receive Bob's DH Public Key Signature
+	bobDHPublicSignature := <-aRecvVar
+
+	// Verify Bob's DH Public Key Signature
+	verified := verifySignature(alice.rsaPartnerPublicKey, []byte(BobDHPublicPartnerHash), bobDHPublicSignature)
+	fmt.Println("Verified Bob's DH Public Key Signature: ", verified)
 	// Compute Shared Secret
 	alice.dhSharedSecret = getSharedSecret(alice.dhSecret,alice.dhPublicPartner, alice.dhPrime) 
 	// Debug: Check if shared secrets are the same
 	fmt.Println("Alice's Shared Secret:", alice.dhSharedSecret)
-	/*
+	
+	// Generate MD5 Hash for AES from shared secret
+	SharedSecretHash := generateMD5Hash(alice.dhSharedSecret)	//Given an integer (shared secret key from DHKE), create MD5 hash 32 characters long.
+
+
 	for i := 0; i < 4; i++ {
 		// Encrypt the message
 		//fmt.Printf("%s\n", alice.messages[i])
-		c := dummyEncrypt("##", alice.messages[i])
-
+		c, err := encrypt([]byte(SharedSecretHash), []byte(alice.messages[i]))
+		if err != nil {
+			fmt.Println("Encryption Failed!")
+		}
 		// Generate the MAC
-		//mac := dummyMAC(c)
+		mac := generateMAC(c, []byte(SharedSecretHash))
 
 		// Send the encrypted message and MAC
-		bRecv <- c
+		bRecv <- string(c)
+		bRecvVar <- mac
 
 		// Re-Key
 
 		message, r := <- aRecv
+		
 		if r {
 			// Decrypt the received message
-			d := dummyDecrypt("##", message)
+			d, err := decrypt([]byte(SharedSecretHash), []byte(message))
+			if err != nil {
+				fmt.Println("Decryption Failed!")
+			}
 			fmt.Printf("Alice received: %s\n", d)
 			} else {
 				fmt.Printf("Error")
 			}
-	}*/
+	}
 
 	wg.Done()
 
@@ -398,36 +433,64 @@ func bob(bob *user) {
 	bob.dhPrime = <-bRecvInt
 	bob.dhGenerator = <-bRecvInt
 	bob.dhPublicPartner = <-bRecvInt
+	AliceDHPartnerSignature := <-bRecvVar
+
+	//MD5 Hash on DH Public Partner for Bob --> Generates a String Hash
+	bobDHPublicPartnerHash := generateMD5Hash(bob.dhPublicPartner)
+	//Verify Alice DH Partner Public Signature
+	verified := verifySignature(bob.rsaPartnerPublicKey, []byte(bobDHPublicPartnerHash), AliceDHPartnerSignature)
+	fmt.Println("Verified Alice's DH Public Key Signature: ", verified)
+	
 	bob.dhSecret, bob.dhPublicOwn = getDHSecretAndPublicKey(bob.dhPrime, bob.dhGenerator)
+
+	//MD5 Hash on DH Public for Bob --> Generates a String Hash
+	BobDHPublicOwnHash := generateMD5Hash(bob.dhPublicOwn)
+
+	// Generate Signature for DH Public Hash using RSA Private Key and DH Public Hash for Alice
+	BobDHPublicOwnSignature := generateSignature(bob.rsaPrivateKey, []byte(BobDHPublicOwnHash))
+
 	// Send Bob's DH Public Key to Alice
 	aRecvInt <- bob.dhPublicOwn
+	// Send Bob's DH Public Key Signature to Alice
+	aRecvVar <- BobDHPublicOwnSignature
 	// Compute Shared Secret
 	bob.dhSharedSecret = getSharedSecret(bob.dhSecret, bob.dhPublicPartner, bob.dhPrime) 
 	// Debug: Check if shared secrets are the same
 	fmt.Println("Bob's Shared Secret:", bob.dhSharedSecret)
-	/*
+
+	// Generate MD5 Hash for AES from shared secret
+	SharedSecretHash := generateMD5Hash(bob.dhSharedSecret)	//Given an integer (shared secret key from DHKE), create MD5 hash 32 characters long.
+
+	
 	for i := 0; i < 4; i++ {
 
 		message, r := <- bRecv
 		if r {
 			// Decrypt the received message
-			d := dummyDecrypt("##", message)
+			d, err := decrypt([]byte(SharedSecretHash), []byte(message))
+			if err != nil {
+				fmt.Println("Decryption Failed!")
+			}
 			fmt.Printf("Bob received: %s\n", d)
 			} else {
 				fmt.Printf("Error")
 			}
 
 		// Encrypt the message
-		c := dummyEncrypt("##", bob.messages[i])
+		c, err := encrypt([]byte(SharedSecretHash), []byte(bob.messages[i]))
+		if err != nil {
+			fmt.Println("Encryption Failed!")
+		}
 
 		// Generate the MAC
-		//mac := dummyMAC(c)
+		mac := generateMAC(c, []byte(SharedSecretHash))
+
 
 		// Send the encrypted message and MAC
-		aRecv <- c
-
+		aRecv <- string(c)
+		aRecvVar <- mac
 		// Re-Key
-	}*/
+	}
 
 	wg.Done()
 }
@@ -489,7 +552,7 @@ func main() {
 	verified := verifySignature(&alicePublicKey, MACHash, signature)
 	fmt.Println(hex.EncodeToString(signature))
 	fmt.Println(verified)
-	*/
+	
 	
 	// Debug DH
 	// Generate random prime
@@ -507,8 +570,8 @@ func main() {
 	// Generate DH secret and public key for Bob
 	BobDHsecret, BobDHpublicKey := getDHSecretAndPublicKey(prime, generator)
 	fmt.Println("Bob's DH Secret and Public Key:", BobDHsecret, BobDHpublicKey)
-	
-	
+	*/
+	/*
 	// Tri's Debug Code Need to hash the DH Public, then sign that hash
 	// RSA Key Generation
 	// Generates keys for Alice and Bob
@@ -542,8 +605,8 @@ func main() {
 	// End of Tri's Debug Code
 
 	//Need to Generate HMACs according to Section 4.3. MAC ( {DhPublic, E( Message, sharedKey)}, H(sharedKey) )
-	
-
+	*/
+	/*
 	// Let Alice compute Shared Secret
 	AliceSharedSecret := getSharedSecret(AliceDHsecret,BobDHpublicKey, prime)
 	
@@ -559,42 +622,51 @@ func main() {
 		fmt.Println("SUCCESS!!!!! :-)")
 	}
 	
-	
+	*/
 	
 /********************************************* Ben's Part of Main *********************************************/
 	fmt.Printf("OTR message coordinator\n")
-
+	//Generate Alice and Bob's RSA Keys
+	aliceRSAPublicKey, aliceRSAPrivateKey, err:= generateKeys(bitSize)
+	if err != nil {
+		fmt.Println(" RSA Key Generation Failed!")
+	}
+	bobRSAPublicKey, bobRSAPrivateKey, err:= generateKeys(bitSize)
+	if err != nil {
+		fmt.Println(" RSA Key Generation Failed!")
+	}
     // Create Alice (Alice sends the first message)
-    aMessages := []string{
+	aMessages := []string{
 		"Lights on", 
 		"Forward drift?", 
 		"413 is in", 
 		"The Eagle has landed"} 
-    aInfo := &user{0, aMessages, 0, 0, 0, 0, 0, 0, 0, 0}
 
-    // Run Alice
-    wg.Add(1)
-    go alice(aInfo)
+	aInfo := &user{0, aMessages, &aliceRSAPublicKey, aliceRSAPrivateKey, &bobRSAPublicKey, 0, 0, 0, 0, 0, 0}
 
-    // Create Bob
+	// Run Alice
+	wg.Add(1)
+	go alice(aInfo)
+
+	// Create Bob
 	bMessages := []string{
 		"30 seconds", 
 		"yes", 
 		"Houston, Tranquility base here", 
 		"A small step for a student, a giant leap for the group"}
-	bInfo := &user{1, bMessages, 0, 0, 0, 0, 0, 0, 0, 0}
+	bInfo := &user{1, bMessages, &bobRSAPublicKey, bobRSAPrivateKey, &aliceRSAPublicKey, 0, 0, 0, 0, 0, 0}
 
 	// Run Bob
 	wg.Add(1)
-    go bob(bInfo)
+	go bob(bInfo)
 
-    wg.Wait()
+	wg.Wait()
 
 
-    // Once Alice and Bob are created, they start to communicate
-    // DH key agreement -> shared secret
-    // Send encrypted message with MAC
-    // Re-Key
+	// Once Alice and Bob are created, they start to communicate
+	// DH key agreement -> shared secret
+	// Send encrypted message with MAC
+	// Re-Key
 
 }
 
