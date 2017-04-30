@@ -20,7 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	//"log"
 	"encoding/pem"
 	"encoding/asn1"
 	"os"
@@ -350,6 +350,7 @@ func alice(alice *user) {
 	alice.dhPrime = getPrime()
 	alice.dhGenerator = getPrimitiveRoot(alice.dhPrime)
 	alice.dhSecret, alice.dhPublicOwn = getDHSecretAndPublicKey(alice.dhPrime, alice.dhGenerator)
+	
 	// Send Parameters to Bob
 	bRecvInt <- alice.dhPrime
 	bRecvInt <- alice.dhGenerator
@@ -440,16 +441,11 @@ func main() {
 	
 	bitSize := 2048
 	
+	/*
 	// RSA Key Generation
 	// Generates keys for Alice and Bob
 	alicePublicKey, alicePrivateKey, err:= generateKeys(bitSize)
 	bobPublicKey, bobPrivateKey, err:= generateKeys(bitSize)
-
-	
-	//fmt.Printf("Alice Public Key: \n%s\n", alicePublicKey)
-	//fmt.Printf("Alice Private Key: \n%s\n", alicePrivateKey)
-	//fmt.Printf("Bob Public Key: \n%s\n", bobPublicKey)
-	//fmt.Printf("Bob Private Key: \n%s\n", bobPrivateKey)
 
 	// Saves Private Key and Public Key as PEM file and puts it into variable
 	alicePrivateKeyPEM, alicePublicKeyPEM, err := generatePEMKeys("alicePrivateKeyPEM", "alicePublicKeyPEM", alicePublicKey, alicePrivateKey)
@@ -493,8 +489,8 @@ func main() {
 	verified := verifySignature(&alicePublicKey, MACHash, signature)
 	fmt.Println(hex.EncodeToString(signature))
 	fmt.Println(verified)
-
-	/*
+	*/
+	
 	// Debug DH
 	// Generate random prime
 	prime := getPrime()
@@ -502,6 +498,7 @@ func main() {
 	
 	// Generate /primitive root generator
 	generator := getPrimitiveRoot(prime)
+	
 	
 	// Generate DH secret and public key for Alice
 	AliceDHsecret, AliceDHpublicKey := getDHSecretAndPublicKey(prime, generator)
@@ -511,11 +508,49 @@ func main() {
 	BobDHsecret, BobDHpublicKey := getDHSecretAndPublicKey(prime, generator)
 	fmt.Println("Bob's DH Secret and Public Key:", BobDHsecret, BobDHpublicKey)
 	
+	
+	// Tri's Debug Code Need to hash the DH Public, then sign that hash
+	// RSA Key Generation
+	// Generates keys for Alice and Bob
+	aliceRSAPublicKey, aliceRSAPrivateKey, err:= generateKeys(bitSize)
+	if err != nil {
+		fmt.Println(" RSa Key Generation Failed!")
+	}
+	bobRSAPublicKey, bobRSAPrivateKey, err:= generateKeys(bitSize)
+	if err != nil {
+		fmt.Println(" RSa Key Generation Failed!")
+	}
+
+	//MD5 Hash on DH Public for Alice --> Generates a String Hash
+	AliceDHPublicHash := generateMD5Hash(AliceDHpublicKey)
+	fmt.Println("\nAlice DH Public Hash: \n", AliceDHPublicHash)
+	//MD5 Hash on DH Public for Bob --> Generates a String Hash
+	BobDHPublicHash := generateMD5Hash(BobDHpublicKey)
+	fmt.Println("\nBob DH Public Hash: \n", BobDHPublicHash)
+
+	// Generate Signature for DH Public Hash using RSA Private Key and DH Public Hash for Alice
+	AliceDHPublicSignature := generateSignature(aliceRSAPrivateKey, []byte(AliceDHPublicHash))
+	verified := verifySignature(&aliceRSAPublicKey, []byte(AliceDHPublicHash), AliceDHPublicSignature)
+	fmt.Println("\nAlice DH Public Signature: \n", hex.EncodeToString(AliceDHPublicSignature))
+	fmt.Println("Verified: ", verified)
+
+	// Generate Signature for DH Public Hash using RSA Private Key and DH Public Hash for Bob
+	BobDHPublicSignature := generateSignature(bobRSAPrivateKey, []byte(BobDHPublicHash))
+	verified = verifySignature(&bobRSAPublicKey, []byte(BobDHPublicHash), BobDHPublicSignature)
+	fmt.Println("\nBob DH Public Signature: \n", hex.EncodeToString(BobDHPublicSignature))
+	fmt.Println("Verified: ", verified)
+	// End of Tri's Debug Code
+
+	//Need to Generate HMACs according to Section 4.3. MAC ( {DhPublic, E( Message, sharedKey)}, H(sharedKey) )
+	
+
 	// Let Alice compute Shared Secret
 	AliceSharedSecret := getSharedSecret(AliceDHsecret,BobDHpublicKey, prime)
 	
 	// Let Alice compute Shared Secret
 	BobSharedSecret := getSharedSecret(BobDHsecret,AliceDHpublicKey, prime)
+
+	
 	
 	// Are they the same?
 	fmt.Println("Alice's Shared Secret:", AliceSharedSecret)
@@ -523,7 +558,7 @@ func main() {
 	if (AliceSharedSecret == BobSharedSecret){
 		fmt.Println("SUCCESS!!!!! :-)")
 	}
-	*/
+	
 	
 	
 /********************************************* Ben's Part of Main *********************************************/
