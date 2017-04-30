@@ -27,23 +27,9 @@ import (
 	//"reflect"
 	"encoding/hex"
 	//"unicode/utf-8"
+	"sync"
 
 )
-
-
-/********************************************* Define Objects *********************************************/
-
-// User Object
-type User struct {
-	id int
-	message string
-	rsaPublicKey int
-	rsaPrivateKey int
-	dhPublic int
-	dhSecret int
-}
-
-// Maybe Eve Object
 
 
 /********************************************* Diffie-Hellman *********************************************/
@@ -321,6 +307,130 @@ func verifySignature(rsaPublicKey *rsa.PublicKey, hash []byte, signature []byte)
 	return true
 }
 
+
+
+/********************************************* Define actual OTR Requirements and Objects *********************************************/
+
+// Create shared channels that will be used by Alice and Bob for communication
+//var aSend = make(chan string)
+var aRecv = make(chan string)
+var aRecvInt = make(chan int)
+
+//var bSend = make(chan string)
+var bRecv = make(chan string)
+var bRecvInt = make(chan int)
+
+
+var wg sync.WaitGroup
+
+// User Object
+type user struct {
+	id int
+	messages []string
+	rsaPublicKey int
+	rsaPrivateKey int
+	dhPrime int
+	dhGenerator int
+	dhPublicOwn int
+	dhPublicPartner int
+	dhSecret int
+	dhSharedSecret int
+}
+
+// Maybe Eve Object
+
+
+// Alice sends the first message
+func alice(alice *user) {
+	fmt.Printf("Alice\n")
+
+	// Diffie Hellman Block
+	// Since Alice sends the first message, let her create DH parameters and send it to Bob
+	// Create Parameters
+	alice.dhPrime = getPrime()
+	alice.dhGenerator = getPrimitiveRoot(alice.dhPrime)
+	alice.dhSecret, alice.dhPublicOwn = getDHSecretAndPublicKey(alice.dhPrime, alice.dhGenerator)
+	// Send Parameters to Bob
+	bRecvInt <- alice.dhPrime
+	bRecvInt <- alice.dhGenerator
+	bRecvInt <- alice.dhPublicOwn
+	// Receive Bob's DH Public Key
+	alice.dhPublicPartner = <-aRecvInt
+	// Compute Shared Secret
+	alice.dhSharedSecret = getSharedSecret(alice.dhSecret,alice.dhPublicPartner, alice.dhPrime) 
+	// Debug: Check if shared secrets are the same
+	fmt.Println("Alice's Shared Secret:", alice.dhSharedSecret)
+	/*
+	for i := 0; i < 4; i++ {
+		// Encrypt the message
+		//fmt.Printf("%s\n", alice.messages[i])
+		c := dummyEncrypt("##", alice.messages[i])
+
+		// Generate the MAC
+		//mac := dummyMAC(c)
+
+		// Send the encrypted message and MAC
+		bRecv <- c
+
+		// Re-Key
+
+		message, r := <- aRecv
+		if r {
+			// Decrypt the received message
+			d := dummyDecrypt("##", message)
+			fmt.Printf("Alice received: %s\n", d)
+			} else {
+				fmt.Printf("Error")
+			}
+	}*/
+
+	wg.Done()
+
+}
+
+func bob(bob *user) {
+	fmt.Printf("Bob\n")
+
+	// Diffie Hellman Block
+	// Since Bob receives the first message, let him receive DH parameters
+	// Receive Parameters
+	bob.dhPrime = <-bRecvInt
+	bob.dhGenerator = <-bRecvInt
+	bob.dhPublicPartner = <-bRecvInt
+	bob.dhSecret, bob.dhPublicOwn = getDHSecretAndPublicKey(bob.dhPrime, bob.dhGenerator)
+	// Send Bob's DH Public Key to Alice
+	aRecvInt <- bob.dhPublicOwn
+	// Compute Shared Secret
+	bob.dhSharedSecret = getSharedSecret(bob.dhSecret, bob.dhPublicPartner, bob.dhPrime) 
+	// Debug: Check if shared secrets are the same
+	fmt.Println("Bob's Shared Secret:", bob.dhSharedSecret)
+	/*
+	for i := 0; i < 4; i++ {
+
+		message, r := <- bRecv
+		if r {
+			// Decrypt the received message
+			d := dummyDecrypt("##", message)
+			fmt.Printf("Bob received: %s\n", d)
+			} else {
+				fmt.Printf("Error")
+			}
+
+		// Encrypt the message
+		c := dummyEncrypt("##", bob.messages[i])
+
+		// Generate the MAC
+		//mac := dummyMAC(c)
+
+		// Send the encrypted message and MAC
+		aRecv <- c
+
+		// Re-Key
+	}*/
+
+	wg.Done()
+}
+
 /********************************************* Main *********************************************/
 func main() {
 
@@ -384,8 +494,8 @@ func main() {
 	fmt.Println(hex.EncodeToString(signature))
 	fmt.Println(verified)
 
+	/*
 	// Debug DH
-	
 	// Generate random prime
 	prime := getPrime()
 	//debugPrime := 2857
@@ -413,7 +523,43 @@ func main() {
 	if (AliceSharedSecret == BobSharedSecret){
 		fmt.Println("SUCCESS!!!!! :-)")
 	}
+	*/
 	
+	
+/********************************************* Ben's Part of Main *********************************************/
+	fmt.Printf("OTR message coordinator\n")
+
+    // Create Alice (Alice sends the first message)
+    aMessages := []string{
+		"Lights on", 
+		"Forward drift?", 
+		"413 is in", 
+		"The Eagle has landed"} 
+    aInfo := &user{0, aMessages, 0, 0, 0, 0, 0, 0, 0, 0}
+
+    // Run Alice
+    wg.Add(1)
+    go alice(aInfo)
+
+    // Create Bob
+	bMessages := []string{
+		"30 seconds", 
+		"yes", 
+		"Houston, Tranquility base here", 
+		"A small step for a student, a giant leap for the group"}
+	bInfo := &user{1, bMessages, 0, 0, 0, 0, 0, 0, 0, 0}
+
+	// Run Bob
+	wg.Add(1)
+    go bob(bInfo)
+
+    wg.Wait()
+
+
+    // Once Alice and Bob are created, they start to communicate
+    // DH key agreement -> shared secret
+    // Send encrypted message with MAC
+    // Re-Key
 
 }
 
