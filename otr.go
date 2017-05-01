@@ -8,7 +8,6 @@ import (
 	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
-	//"crypto/dsa"
 	"crypto/rsa"
 	"crypto/md5"
 	"crypto/x509"
@@ -20,13 +19,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	//"log"
 	"encoding/pem"
 	"encoding/asn1"
 	"os"
-	//"reflect"
 	"encoding/hex"
-	//"unicode/utf-8"
 	"sync"
 
 )
@@ -56,6 +52,7 @@ func getPrime() int {
 		}
 	}
 	randomPrimeInt, _ = strconv.Atoi(randomPrime.String())
+	fmt.Println("********** Generate initial Diffie Hellman Parameters **********")
 	fmt.Printf("Randomly Generated Prime: %d\n", randomPrimeInt)
 	return randomPrimeInt
 	//return randomPrime
@@ -117,6 +114,7 @@ func getPrimitiveRoot(prime int) (int) {
 		if (equals1 == false) {
 			generator = i
 			fmt.Println("Smallest Primitive Root / Generator of", prime, "is", generator)
+			fmt.Println("****************************************************************")
 			break
 		}
 		
@@ -345,97 +343,76 @@ type user struct {
 
 // Alice sends the first message
 func alice(alice *user) {
-	fmt.Printf("Alice\n")
 
-	// Diffie Hellman Block
+	// INITIAL DIFFIE HELLMAN BLOCK
 	// Since Alice sends the first message, let her create DH parameters and send it to Bob
 	// Create Parameters
 	alice.dhPrime = getPrime()
 	alice.dhGenerator = getPrimitiveRoot(alice.dhPrime)
 	alice.dhSecret, alice.dhPublicOwn = getDHSecretAndPublicKey(alice.dhPrime, alice.dhGenerator)
-	
 	//MD5 Hash on DH Public for Alice --> Generates a String Hash
 	AliceDHPublicOwnHash := generateMD5Hash(alice.dhPublicOwn)
 	// Generate Signature for DH Public Hash using RSA Private Key and DH Public Hash for Alice
 	AliceDHPublicOwnSignature := generateSignature(alice.rsaPrivateKey, []byte(AliceDHPublicOwnHash))
-
 	// Send Parameters to Bob
 	bRecvInt <- alice.dhPrime
 	bRecvInt <- alice.dhGenerator
 	bRecvInt <- alice.dhPublicOwn
-	// Send PublicOwn Signature, Bvob will verify
+	// Send PublicOwn Signature, Bob will verify
 	bRecvVar <- AliceDHPublicOwnSignature
-
-
 	// Receive Bob's DH Public Key
 	alice.dhPublicPartner = <-aRecvInt
 	// Receive Bob's DH Public Key Signature
 	bobDHPublicSignature := <-aRecvVar
-	
 	//MD5 Hash on DH Public for Bob --> Generates a String Hash
 	BobDHPublicPartnerHash := generateMD5Hash(alice.dhPublicPartner)
 	// Verify Bob's DH Public Key Signature
 	verified := verifySignature(alice.rsaPartnerPublicKey, []byte(BobDHPublicPartnerHash), bobDHPublicSignature)
-	fmt.Println("Verified Bob's DH Public Key Signature: ", verified)
-	
+	fmt.Println("Verified Bob's RSA Signature of DH Public Key:", verified)
 	// Compute Shared Secret
 	alice.dhSharedSecret = getSharedSecret(alice.dhSecret,alice.dhPublicPartner, alice.dhPrime) 
-	// Debug: Check if shared secrets are the same
-	fmt.Println("Alice's Shared Secret:", alice.dhSharedSecret)
-	
 	// Generate MD5 Hash for AES from shared secret
 	SharedSecretHash := generateMD5Hash(alice.dhSharedSecret)	//Given an integer (shared secret key from DHKE), create MD5 hash 32 characters long.
 
 
 	for i := 0; i < 4; i++ {
+		
+		// SEND MESSAGE BLOCK
 		// Encrypt the message
-		//fmt.Printf("%s\n", alice.messages[i])
+		fmt.Printf("Alice sends: %s\n", alice.messages[i])
 		c, err := encrypt([]byte(SharedSecretHash), []byte(alice.messages[i]))
 		if err != nil {
 			fmt.Println("Encryption Failed!")
 		}
 		// Generate the MAC
 		mac := generateMAC(c, []byte(SharedSecretHash))
-
 		// Send the encrypted message and MAC
 		bRecv <- string(c)
 		bRecvVar <- mac
-		// Re-Key
-		// Diffie Hellman Block
-		// Since Alice sends the first message, let her create DH parameters and send it to Bob
-		// Create Parameters
 
-		alice.dhPrime = getPrime()
-		alice.dhGenerator = getPrimitiveRoot(alice.dhPrime)
+
+		
+	
+		// INITIATE RE-KEYING BLOCK
 		alice.dhSecret, alice.dhPublicOwn = getDHSecretAndPublicKey(alice.dhPrime, alice.dhGenerator)
-
-		//MD5 Hash on DH Public for Alice --> Generates a String Hash
-		AliceDHPublicOwnHash := generateMD5Hash(alice.dhPublicOwn)
-		// Generate Signature for DH Public Hash using RSA Private Key and DH Public Hash for Alice
-		AliceDHPublicOwnSignature := generateSignature(alice.rsaPrivateKey, []byte(AliceDHPublicOwnHash))
-
-		// Send Parameters to Bob
-		bRecvInt <- alice.dhPrime
-		bRecvInt <- alice.dhGenerator
+		// Send own DH Public Key
 		bRecvInt <- alice.dhPublicOwn
-		// Send PublicOwn Signature, Bob will verify
-		bRecvVar <- AliceDHPublicOwnSignature
-
-		// Receive Bob's DH Public Key
+		// Create MAC of own DH Public Key and send it to Bob (todo)
+		
+		// Receive Bob's DH Public Key and its MAC (todo)
 		alice.dhPublicPartner = <-aRecvInt
-		// Receive Bob's DH Public Key Signature
-		bobDHPublicSignature := <-aRecvVar
-		//MD5 Hash on DH Public for Bob --> Generates a String Hash
-		BobDHPublicPartnerHash := generateMD5Hash(alice.dhPublicPartner)
-
-		// Verify Bob's DH Public Key Signature
-		verified := verifySignature(alice.rsaPartnerPublicKey, []byte(BobDHPublicPartnerHash), bobDHPublicSignature)
-		fmt.Println("Verified Bob's DH Public Key Signature: ", verified)		
-
+		
+		// Validate Bob's DH Public Key's MAC (todo)
+		
 		// Compute Shared Secret
 		alice.dhSharedSecret = getSharedSecret(alice.dhSecret,alice.dhPublicPartner, alice.dhPrime) 
-		// Debug: Check if shared secrets are the same
-		fmt.Println("Alice's Shared Secret:", alice.dhSharedSecret)
+		
+	
+		
+		
+		
+		
+		// RECEIVE MESSAGE BLOCK
 		// Generate MD5 Hash for AES from shared secret
 		SharedSecretHash := generateMD5Hash(alice.dhSharedSecret)	//Given an integer (shared secret key from DHKE), create MD5 hash 32 characters long.
 
@@ -443,7 +420,11 @@ func alice(alice *user) {
 		messageMAC := <- aRecvVar
 		if messageMAC == nil {
 			fmt.Printf("Alice did not get MAC: ", messageMAC)
+		} else {
+				// Check received messageMAC using function checkMAC() (todo)
 		}
+		
+		
 		if r {
 			// Decrypt the received message
 			//d := dummyDecrypt("##", message)
@@ -458,56 +439,81 @@ func alice(alice *user) {
 		} else {
 				fmt.Printf("Error")
 		}
+		
+
+		
+		
+		
+		// RECEIVE RE-KEYING BLOCK
+		// Receive Bob's DH Public Key and its MAC (todo)
+		alice.dhPublicPartner = <-aRecvInt
+		
+		// Verify Bob's MAC (todo)
+		
+		// Create own DH Secret and Public Key
+		alice.dhSecret, alice.dhPublicOwn = getDHSecretAndPublicKey(alice.dhPrime, alice.dhGenerator)
+		// Create MAC of DH Public Key and send it to Bob (todo)
+		
+		
+		// Send Alice's DH Public Key and its MAC to Bob (todo)
+		bRecvInt <- alice.dhPublicOwn
+		
+		// Compute Shared Secret
+		alice.dhSharedSecret = getSharedSecret(alice.dhSecret, alice.dhPublicPartner, alice.dhPrime) 
+	
+		// Generate MD5 Hash for AES from shared secret
+		SharedSecretHash = generateMD5Hash(alice.dhSharedSecret)	//Given an integer (shared secret key from DHKE), create MD5 hash 32 characters long.
+		
+		
 	}
 
 	wg.Done()
 
 }
-
+// Bob receives the first message
 func bob(bob *user) {
-	fmt.Printf("Bob\n")
 
-	// Diffie Hellman Block
+	
+	// INITIAL DIFFIE HELLMAN BLOCK
 	// Since Bob receives the first message, let him receive DH parameters
 	// Receive Parameters
 	bob.dhPrime = <-bRecvInt
 	bob.dhGenerator = <-bRecvInt
 	bob.dhPublicPartner = <-bRecvInt
 	AliceDHPartnerSignature := <-bRecvVar
-
 	//MD5 Hash on DH Public Partner for Bob --> Generates a String Hash
 	bobDHPublicPartnerHash := generateMD5Hash(bob.dhPublicPartner)
 	//Verify Alice DH Partner Public Signature
 	verified := verifySignature(bob.rsaPartnerPublicKey, []byte(bobDHPublicPartnerHash), AliceDHPartnerSignature)
-	fmt.Println("Verified Alice's DH Public Key Signature: ", verified)
-	
+	fmt.Println("Verified Alice's RSA Signature of DH Public Key:", verified)
+	// Create own DH Secret and Public Key
 	bob.dhSecret, bob.dhPublicOwn = getDHSecretAndPublicKey(bob.dhPrime, bob.dhGenerator)
-
 	//MD5 Hash on DH Public for Bob --> Generates a String Hash
 	BobDHPublicOwnHash := generateMD5Hash(bob.dhPublicOwn)
-
 	// Generate Signature for DH Public Hash using RSA Private Key and DH Public Hash for Alice
 	BobDHPublicOwnSignature := generateSignature(bob.rsaPrivateKey, []byte(BobDHPublicOwnHash))
-
 	// Send Bob's DH Public Key to Alice
 	aRecvInt <- bob.dhPublicOwn
 	// Send Bob's DH Public Key Signature to Alice
 	aRecvVar <- BobDHPublicOwnSignature
 	// Compute Shared Secret
-	bob.dhSharedSecret = getSharedSecret(bob.dhSecret, bob.dhPublicPartner, bob.dhPrime) 
-	// Debug: Check if shared secrets are the same
-	fmt.Println("Bob's Shared Secret:", bob.dhSharedSecret)
-
+	bob.dhSharedSecret = getSharedSecret(bob.dhSecret, bob.dhPublicPartner, bob.dhPrime)
 	// Generate MD5 Hash for AES from shared secret
 	SharedSecretHash := generateMD5Hash(bob.dhSharedSecret)	//Given an integer (shared secret key from DHKE), create MD5 hash 32 characters long.
 
 	
 	for i := 0; i < 4; i++ {
+		
+		// RECEIVE MESSAGE BLOCK
+		fmt.Printf("Bob sends: %s\n", bob.messages[i])
 		message, r := <- bRecv
 		messageMAC := <- bRecvVar
 		if messageMAC == nil {
 			fmt.Printf("Bob did not receive MAC: ", messageMAC)
+		} else {
+				// Check received messageMAC using function checkMAC() (todo)
 		}
+		
 		if r {
 			// Decrypt the received message
 			d, err := decrypt([]byte(SharedSecretHash), []byte(message))
@@ -519,71 +525,68 @@ func bob(bob *user) {
 				fmt.Printf("Error")
 		}
 		
-			/*
-			// Encrypt the message
-			c, err := encrypt([]byte(SharedSecretHash), []byte(bob.messages[i]))
-			if err != nil {
-				fmt.Println("Encryption Failed!")
-			}
 
-			// Generate the MAC
-			mac := generateMAC(c, []byte(SharedSecretHash))
-			
-
-			// Send the encrypted message and MAC
-			aRecv <- string(c)
-			aRecvVar <- mac
-			*/
-
-			// Re-Key
-
-			// Diffie Hellman Block
-			// Since Bob receives the first message, let him receive DH parameters
-			// Receive Parameters
-		bob.dhPrime = <-bRecvInt
-		bob.dhGenerator = <-bRecvInt
-		bob.dhPublicPartner = <-bRecvInt
-		AliceDHPartnerSignature := <-bRecvVar
-
-			//MD5 Hash on DH Public Partner for Bob --> Generates a String Hash
-		bobDHPublicPartnerHash := generateMD5Hash(bob.dhPublicPartner)
-			//Verify Alice DH Partner Public Signature
-			verified := verifySignature(bob.rsaPartnerPublicKey, []byte(bobDHPublicPartnerHash), AliceDHPartnerSignature)
-			fmt.Println("Verified Alice's DH Public Key Signature: ", verified)
-	
-			bob.dhSecret, bob.dhPublicOwn = getDHSecretAndPublicKey(bob.dhPrime, bob.dhGenerator)
-
-			//MD5 Hash on DH Public for Bob --> Generates a String Hash
-			BobDHPublicOwnHash := generateMD5Hash(bob.dhPublicOwn)
-
-			// Generate Signature for DH Public Hash using RSA Private Key and DH Public Hash for Alice
-			BobDHPublicOwnSignature := generateSignature(bob.rsaPrivateKey, []byte(BobDHPublicOwnHash))
-
-			// Send Bob's DH Public Key to Alice
-			aRecvInt <- bob.dhPublicOwn
-			// Send Bob's DH Public Key Signature to Alice
-			aRecvVar <- BobDHPublicOwnSignature
-
-			// Compute Shared Secret
-			bob.dhSharedSecret = getSharedSecret(bob.dhSecret, bob.dhPublicPartner, bob.dhPrime) 
-			// Debug: Check if shared secrets are the same
-			fmt.Println("Bob's Shared Secret:", bob.dhSharedSecret)
-
-			// Generate MD5 Hash for AES from shared secret
-			SharedSecretHash := generateMD5Hash(bob.dhSharedSecret)	//Given an integer (shared secret key from DHKE), create MD5 hash 32 characters long.
 		
-			c, err := encrypt([]byte(SharedSecretHash), []byte(bob.messages[i]))
-			if err != nil {
-				fmt.Printf("%s", err)
-			}
-
-
-			mac := generateMAC(c, []byte(SharedSecretHash))
-
-			// Send the encrypted message and MAC
-			aRecv <- string(c)
-			aRecvVar <- mac
+		
+		
+		// RECEIVE RE-KEYING BLOCK
+		// Receive Alice's DH Public Key and its MAC (todo)
+		bob.dhPublicPartner = <-bRecvInt
+	
+		// Verify Bob's MAC (todo)
+		
+		// Create own DH Secret and Public Key
+		bob.dhSecret, bob.dhPublicOwn = getDHSecretAndPublicKey(bob.dhPrime, bob.dhGenerator)
+		// Create MAC of DH Public Key and send it to Alice (todo)
+		
+		
+		// Send Bob's DH Public Key and its MAC to Alice (todo)
+		aRecvInt <- bob.dhPublicOwn
+		
+		// Compute Shared Secret
+		bob.dhSharedSecret = getSharedSecret(bob.dhSecret, bob.dhPublicPartner, bob.dhPrime) 
+	
+		// Generate MD5 Hash for AES from shared secret
+		SharedSecretHash := generateMD5Hash(bob.dhSharedSecret)	//Given an integer (shared secret key from DHKE), create MD5 hash 32 characters long.
+		
+		
+		
+		
+		
+		
+		// SEND MESSAGE BLOCK
+		c, err := encrypt([]byte(SharedSecretHash), []byte(bob.messages[i]))
+		if err != nil {
+			fmt.Printf("%s", err)
+		}
+		mac := generateMAC(c, []byte(SharedSecretHash))
+		// Send the encrypted message and MAC
+		aRecv <- string(c)
+		aRecvVar <- mac
+		
+		
+		
+		// INITIATE RE-KEYING BLOCK
+		bob.dhSecret, bob.dhPublicOwn = getDHSecretAndPublicKey(bob.dhPrime, bob.dhGenerator)
+		// Send own DH Public Key
+		aRecvInt <- bob.dhPublicOwn
+		// Create MAC of own DH Public Key and send it to Alice (todo)
+		
+		// Receive Alice's DH Public Key and its MAC (todo)
+		bob.dhPublicPartner = <-bRecvInt
+		
+		// Validate Alices's DH Public Key's MAC (todo)
+		
+		// Compute Shared Secret
+		bob.dhSharedSecret = getSharedSecret(bob.dhSecret,bob.dhPublicPartner, bob.dhPrime) 
+		
+		
+		
+		
+		
 	}
+	
+	
 
 	wg.Done()
 }
@@ -718,7 +721,7 @@ func main() {
 	*/
 	
 /********************************************* Ben's Part of Main *********************************************/
-	fmt.Printf("OTR message coordinator\n")
+	//fmt.Printf("OTR message coordinator\n")
 	//Generate Alice and Bob's RSA Keys
 	aliceRSAPublicKey, aliceRSAPrivateKey, err:= generateKeys(bitSize)
 	if err != nil {
