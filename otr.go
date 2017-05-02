@@ -310,17 +310,17 @@ func verifySignature(rsaPublicKey *rsa.PublicKey, hash []byte, signature []byte)
 /********************************************* Define actual OTR Requirements and Objects *********************************************/
 
 // Create shared channels that will be used by Alice and Bob for communication
-//var aSend = make(chan string)
+// Channels to send information from Sender to Receiver
 var SenderToReceiver = make(chan string)
 var SenderToReceiverInt = make(chan int)
 var SenderToReceiverVar = make(chan []byte)
 
-//var bSend = make(chan string)
+// Channels to send information from Receiver to Sender
 var ReceiverToSender = make(chan string)
 var ReceiverToSenderInt = make(chan int)
 var ReceiverToSenderVar = make(chan []byte)
 
-
+// Create waitGroup for Synchronization
 var wg sync.WaitGroup
 
 // User Object
@@ -341,36 +341,33 @@ type user struct {
 	SharedSecretHash string
 }
 
-
-
-
+// Function to run initial Diffie-Hellman Parameter setup
 func initiateDHParameters(initiator *user) {
 
 	// INITIAL DIFFIE HELLMAN BLOCK
-	// Since Alice sends the first message, let her create DH parameters and send it to Bob
 	// Create Parameters
 	initiator.dhPrime = getPrime()
 	initiator.dhGenerator = getPrimitiveRoot(initiator.dhPrime)
 	initiator.dhSecret, initiator.dhPublicOwn = getDHSecretAndPublicKey(initiator.dhPrime, initiator.dhGenerator)
-	//MD5 Hash on DH Public for Alice --> Generates a String Hash
+	//MD5 Hash on own DH Public --> Generates a String Hash
 	dhPublicOwnHash := generateMD5Hash(initiator.dhPublicOwn)
-	// Generate Signature for DH Public Hash using RSA Private Key and DH Public Hash for Alice
+	// Generate Signature for DH Public Hash using RSA Private Key and DH Public Hash
 	dhPublicOwnSignature := generateSignature(initiator.rsaPrivateKey, []byte(dhPublicOwnHash))
-	// Send Parameters to Bob
+	// Send Parameters
 	SenderToReceiverInt <- initiator.dhPrime
 	SenderToReceiverInt <- initiator.dhGenerator
 	SenderToReceiverInt <- initiator.dhPublicOwn
-	// Send PublicOwn Signature, Bob will verify
+	// Send PublicOwn Signature
 	SenderToReceiverVar <- dhPublicOwnSignature
-	// Receive Bob's DH Public Key
+	// Receive DH Public Key
 	initiator.dhPublicPartner = <-ReceiverToSenderInt
-	// Receive Bob's DH Public Key Signature
+	// Receive DH Public Key Signature
 	dhPublicPartnerSignature := <-ReceiverToSenderVar
-	//MD5 Hash on DH Public for Bob --> Generates a String Hash
+	//MD5 Hash on DH Public --> Generates a String Hash
 	dhPublicPartnerHash := generateMD5Hash(initiator.dhPublicPartner)
-	// Verify Bob's DH Public Key Signature
+	// Verify received DH Public Key Signature
 	verified := verifySignature(initiator.rsaPartnerPublicKey, []byte(dhPublicPartnerHash), dhPublicPartnerSignature)
-	fmt.Println("Verified", initiator.name,"'s RSA Signature of DH Public Key:", verified)
+	fmt.Println("Verified",initiator.name,"'s RSA Signature of DH Public Key:", verified)
 	// Compute Shared Secret
 	initiator.dhSharedSecret = getSharedSecret(initiator.dhSecret,initiator.dhPublicPartner, initiator.dhPrime) 
 	// Generate MD5 Hash for AES from shared secret
@@ -379,30 +376,30 @@ func initiateDHParameters(initiator *user) {
 	wg.Done()
 }
 
+// Function to receive and respond to initial Diffie-Hellman Parameter setup
 func receiveDHParameters(receiver *user) {
 	
 	
 	// INITIAL DIFFIE HELLMAN BLOCK
-	// Since Bob receives the first message, let him receive DH parameters
 	// Receive Parameters
 	receiver.dhPrime = <-SenderToReceiverInt
 	receiver.dhGenerator = <-SenderToReceiverInt
 	receiver.dhPublicPartner = <-SenderToReceiverInt
 	dhPublicPartnerSignature := <-SenderToReceiverVar
-	//MD5 Hash on DH Public Partner for Bob --> Generates a String Hash
+	//MD5 Hash on DH Public Partner --> Generates a String Hash
 	dhPublicPartnerHash := generateMD5Hash(receiver.dhPublicPartner)
-	//Verify Alice DH Partner Public Signature
+	//Verify DH Partner Public Signature
 	verified := verifySignature(receiver.rsaPartnerPublicKey, []byte(dhPublicPartnerHash), dhPublicPartnerSignature)
-	fmt.Println("Verified Alice's RSA Signature of DH Public Key:", verified)
+	fmt.Println("Verified",receiver.name,"'s RSA Signature of DH Public Key:", verified)
 	// Create own DH Secret and Public Key
 	receiver.dhSecret, receiver.dhPublicOwn = getDHSecretAndPublicKey(receiver.dhPrime, receiver.dhGenerator)
-	//MD5 Hash on DH Public for Bob --> Generates a String Hash
+	//MD5 Hash on DH Public --> Generates a String Hash
 	dhPublicOwnHash := generateMD5Hash(receiver.dhPublicOwn)
-	// Generate Signature for DH Public Hash using RSA Private Key and DH Public Hash for Alice
+	// Generate Signature for DH Public Hash using RSA Private Key and DH Public Hash
 	dhPublicOwnSignature := generateSignature(receiver.rsaPrivateKey, []byte(dhPublicOwnHash))
-	// Send Bob's DH Public Key to Alice
+	// Send DH Public Key
 	ReceiverToSenderInt <- receiver.dhPublicOwn
-	// Send Bob's DH Public Key Signature to Alice
+	// Send DH Public Key Signature
 	ReceiverToSenderVar <- dhPublicOwnSignature
 	// Compute Shared Secret
 	receiver.dhSharedSecret = getSharedSecret(receiver.dhSecret, receiver.dhPublicPartner, receiver.dhPrime)
@@ -414,7 +411,7 @@ func receiveDHParameters(receiver *user) {
 }
 	
 	
-
+// Function to send message
 func sendMessage(sender *user, counter int) {
 	
 	// ENCRYPT AND SEND MESSAGE
@@ -431,8 +428,6 @@ func sendMessage(sender *user, counter int) {
 	SenderToReceiverVar <- mac
 
 
-
-
 	// INITIATE RE-KEYING
 	sender.dhSecret, sender.dhPublicOwn = getDHSecretAndPublicKey(sender.dhPrime, sender.dhGenerator)
 	// Create MAC of own DH Public Key
@@ -446,17 +441,15 @@ func sendMessage(sender *user, counter int) {
 	fmt.Println(sender.name, "initiates re-keying and sends new DH Public Key")
 	SenderToReceiverInt <- sender.dhPublicOwn
 	SenderToReceiverVar <- DHKeyMAC
-	// Receive Bob's DH Public Key and its MAC (todo)
+	// Receive Receiver's DH Public Key and its MAC
 	sender.dhPublicPartner = <-ReceiverToSenderInt
 	DHPublicPartnerMAC := <- ReceiverToSenderVar
 
-
+	// Verify received MAC
 	buffer2 := make([]byte, 100)
 	copy(buffer2, []byte(string(sender.dhPublicPartner)))
 	copy(buffer2, c)
-
-
-	// Verify MAC
+	
 	DHPartnerMACVerified := checkMAC(buffer2, DHPublicPartnerMAC, []byte(sender.SharedSecretHash))
 	if DHPartnerMACVerified == false {
 		fmt.Println(sender.name," DH Public MAC Verification: ", DHPartnerMACVerified)
@@ -471,14 +464,14 @@ func sendMessage(sender *user, counter int) {
 
 }
 
-
+// Function to receive message
 func receiveMessage(receiver *user) {
 		
 	// RECEIVE MESSAGE
 	message, r := <- SenderToReceiver
 	messageMAC := <- SenderToReceiverVar
 	if messageMAC == nil {
-		fmt.Printf("Bob did not receive MAC: ", messageMAC)
+		fmt.Println(receiver.name, "did not receive MAC: ", messageMAC)
 	} else {
 		// Check received messageMAC
 		macVerified := checkMAC([]byte(message), messageMAC, []byte(receiver.SharedSecretHash))
@@ -487,9 +480,9 @@ func receiveMessage(receiver *user) {
 		}				
 	
 	}
-
+	
+	// Decrypt the received message
 	if r {
-		// Decrypt the received message
 		d, err := decrypt([]byte(receiver.SharedSecretHash), []byte(message))
 		if err != nil {
 			fmt.Println("Decryption Failed!")
@@ -502,37 +495,33 @@ func receiveMessage(receiver *user) {
 
 	
 	// RECEIVE RE-KEYING
-
 	// Create own DH Secret and Public Key
 	receiver.dhSecret, receiver.dhPublicOwn = getDHSecretAndPublicKey(receiver.dhPrime, receiver.dhGenerator)
 	
-	// Receive Alice's DH Public Key and its MAC
+	// Receive DH Public Key and its MAC
 	receiver.dhPublicPartner = <-SenderToReceiverInt
 	DHPublicPartnerMAC := <- SenderToReceiverVar
 	
-	// Verify Bob's MAC (todo)
-
-	// Create MAC of DH Public Key and send it to Alice
+	// Create MAC of DH Public Key and send it
 	buffer := make([]byte, 100)
 	copy(buffer, []byte(string(receiver.dhPublicOwn)))
 	copy(buffer, message)
 	DHKeyMAC := generateMAC(buffer, []byte(receiver.SharedSecretHash))
 
-
-	// Send Bob's DH Public Key and its MAC to Alice
+	// Send DH Public Key and its MAC
 	fmt.Println(receiver.name, "answers with new DH Public Key")
 	ReceiverToSenderInt <- receiver.dhPublicOwn
 	ReceiverToSenderVar <- DHKeyMAC
-
+	
+	// Verify received MAC
 	buffer2 := make([]byte, 100)
 	copy(buffer2, []byte(string(receiver.dhPublicPartner)))
 	copy(buffer2, message)
-
+	
 	DHPartnerMACVerified := checkMAC((buffer), DHPublicPartnerMAC, []byte(receiver.SharedSecretHash))
 	if DHPartnerMACVerified == false {
 		fmt.Println(receiver.name, " DH Public MAC Verification: ", DHPartnerMACVerified)
 	}
-
 	// Compute Shared Secret and its MD5 Hash for AES from shared secret
 	receiver.dhSharedSecret = getSharedSecret(receiver.dhSecret, receiver.dhPublicPartner, receiver.dhPrime) 
 	receiver.SharedSecretHash = generateMD5Hash(receiver.dhSharedSecret)
@@ -574,7 +563,7 @@ func main() {
 		"Houston, Tranquility base here", 
 		"A small step for a student, a giant leap for the group"}
 	
-	// Create User Objects
+	// Create User Objects with partly initial dummy values
 	alice := user{0, "Alice", aliceMessages, 0, &aliceRSAPublicKey, aliceRSAPrivateKey, &bobRSAPublicKey, 0, 0, 0, 0, 0, 0, ""}
 	bob := user{1, "Bob", bobMessages, 0, &bobRSAPublicKey, bobRSAPrivateKey, &aliceRSAPublicKey, 0, 0, 0, 0, 0, 0, ""}
 
@@ -603,27 +592,5 @@ func main() {
 		go receiveMessage (receiver)
 		wg.Wait()
 	}
-	
-	
-	
-	
-	// Debug DH initiation
-	//fmt.Println(alice.dhPrime)
-	//fmt.Println(bob.dhPrime)
-	
-
-	
-	
-	
-	// Run Bob
-	//wg.Add(1)
-	//go bob(bInfo)
-
-	//wg.Wait()
-	// Once Alice and Bob are created, they start to communicate
-	// DH key agreement -> shared secret
-	// Send encrypted message with MAC
-	// Re-Key
-
 }
 
