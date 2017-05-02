@@ -389,20 +389,37 @@ func alice(alice *user) {
 		// Send the encrypted message and MAC
 		bRecv <- string(c)
 		bRecvVar <- mac
-
+		
 
 		
 	
 		// INITIATE RE-KEYING BLOCK
 		alice.dhSecret, alice.dhPublicOwn = getDHSecretAndPublicKey(alice.dhPrime, alice.dhGenerator)
+		// Create MAC of own DH Public Key
+		buffer := make([]byte, 100)
+		copy(buffer, []byte(string(alice.dhPublicOwn)))
+		copy(buffer, c)
+		DHKeyMAC := generateMAC(buffer, []byte(SharedSecretHash))		
+
 		// Send own DH Public Key
 		bRecvInt <- alice.dhPublicOwn
-		// Create MAC of own DH Public Key and send it to Bob (todo)
-		
+		//Send MAC of own Dh Public key and send to bob
+		bRecvVar <- DHKeyMAC
 		// Receive Bob's DH Public Key and its MAC (todo)
 		alice.dhPublicPartner = <-aRecvInt
+		DHPublicPartnerMAC := <- aRecvVar
 		
-		// Validate Bob's DH Public Key's MAC (todo)
+		
+		buffer2 := make([]byte, 100)
+		copy(buffer2, []byte(string(alice.dhPublicPartner)))
+		copy(buffer2, c)
+		
+		
+		// Verify MAC
+		DHPartnerMACVerified := checkMAC(buffer2, DHPublicPartnerMAC, []byte(SharedSecretHash))
+		if DHPartnerMACVerified == false {
+			fmt.Println("Bob DH Public MAC Verification: ", DHPartnerMACVerified)
+		}
 		
 		// Compute Shared Secret
 		alice.dhSharedSecret = getSharedSecret(alice.dhSecret,alice.dhPublicPartner, alice.dhPrime) 
@@ -421,7 +438,11 @@ func alice(alice *user) {
 		if messageMAC == nil {
 			fmt.Printf("Alice did not get MAC: ", messageMAC)
 		} else {
-				// Check received messageMAC using function checkMAC() (todo)
+			macVerified := checkMAC([]byte(message), messageMAC, []byte(SharedSecretHash))
+			if macVerified == false	{
+				fmt.Println("Message MAC INVALID: ", macVerified)
+			}				
+			// Check received messageMAC using function checkMAC() (todo)
 		}
 		
 		
@@ -505,13 +526,17 @@ func bob(bob *user) {
 	for i := 0; i < 4; i++ {
 		
 		// RECEIVE MESSAGE BLOCK
-		fmt.Printf("Bob sends: %s\n", bob.messages[i])
+		//fmt.Printf("Bob sends: %s\n", bob.messages[i])
 		message, r := <- bRecv
 		messageMAC := <- bRecvVar
 		if messageMAC == nil {
 			fmt.Printf("Bob did not receive MAC: ", messageMAC)
 		} else {
-				// Check received messageMAC using function checkMAC() (todo)
+			macVerified := checkMAC([]byte(message), messageMAC, []byte(SharedSecretHash))
+			if macVerified == false {
+				fmt.Println("Message MAC INVALID: ", macVerified)
+			}				
+		// Check received messageMAC using function checkMAC() (todo)
 		}
 		
 		if r {
@@ -527,21 +552,34 @@ func bob(bob *user) {
 		
 
 		
-		
+		// Create own DH Secret and Public Key
+		bob.dhSecret, bob.dhPublicOwn = getDHSecretAndPublicKey(bob.dhPrime, bob.dhGenerator)
 		
 		// RECEIVE RE-KEYING BLOCK
 		// Receive Alice's DH Public Key and its MAC (todo)
 		bob.dhPublicPartner = <-bRecvInt
-	
+		DHPublicPartnerMAC := <- bRecvVar
 		// Verify Bob's MAC (todo)
-		
-		// Create own DH Secret and Public Key
-		bob.dhSecret, bob.dhPublicOwn = getDHSecretAndPublicKey(bob.dhPrime, bob.dhGenerator)
+
 		// Create MAC of DH Public Key and send it to Alice (todo)
+		buffer := make([]byte, 100)
+		copy(buffer, []byte(string(bob.dhPublicOwn)))
+		copy(buffer, message)
+		DHKeyMAC := generateMAC(buffer, []byte(SharedSecretHash))
 		
-		
+		fmt.Printf("Sending Bobs's Rekey Block")
 		// Send Bob's DH Public Key and its MAC to Alice (todo)
 		aRecvInt <- bob.dhPublicOwn
+		aRecvVar <- DHKeyMAC
+		
+		buffer2 := make([]byte, 100)
+		copy(buffer2, []byte(string(bob.dhPublicPartner)))
+		copy(buffer2, message)
+		
+		DHPartnerMACVerified := checkMAC((buffer), DHPublicPartnerMAC, []byte(SharedSecretHash))
+		if DHPartnerMACVerified == false {
+			fmt.Println("Alice DH Public MAC Verification: ", DHPartnerMACVerified)
+		}
 		
 		// Compute Shared Secret
 		bob.dhSharedSecret = getSharedSecret(bob.dhSecret, bob.dhPublicPartner, bob.dhPrime) 
