@@ -422,42 +422,12 @@ func sendMessage(sender *user, counter int) {
 		fmt.Println("Encryption Failed!")
 	}
 	// Generate the MAC
-	mac := generateMAC(c, []byte(sender.SharedSecretHash))
+	MK_temp := sha256.Sum256([]byte(sender.SharedSecretHash))
+	var MK []byte = MK_temp[:]
+	mac := generateMAC(c, MK)
 	// Send the encrypted message and MAC
 	SenderToReceiver <- string(c)
 	SenderToReceiverVar <- mac
-
-
-	// INITIATE RE-KEYING
-	sender.dhSecret, sender.dhPublicOwn = getDHSecretAndPublicKey(sender.dhPrime, sender.dhGenerator)
-	// Create MAC of own DH Public Key
-	buffer := make([]byte, 100)
-	copy(buffer, []byte(string(sender.dhPublicOwn)))
-	copy(buffer, c)
-	DHKeyMAC := generateMAC(buffer, []byte(sender.SharedSecretHash))		
-
-	// Send own DH Public Key and its MAC
-	fmt.Println("************************** Re-Keying ***************************")
-	fmt.Println(sender.name, "initiates re-keying and sends new DH Public Key")
-	SenderToReceiverInt <- sender.dhPublicOwn
-	SenderToReceiverVar <- DHKeyMAC
-	// Receive Receiver's DH Public Key and its MAC
-	sender.dhPublicPartner = <-ReceiverToSenderInt
-	DHPublicPartnerMAC := <- ReceiverToSenderVar
-
-	// Verify received MAC
-	buffer2 := make([]byte, 100)
-	copy(buffer2, []byte(string(sender.dhPublicPartner)))
-	copy(buffer2, c)
-	
-	DHPartnerMACVerified := checkMAC(buffer2, DHPublicPartnerMAC, []byte(sender.SharedSecretHash))
-	if DHPartnerMACVerified == false {
-		fmt.Println(sender.name," DH Public MAC Verification: ", DHPartnerMACVerified)
-	}
-
-	// Compute Shared Secret and its MD5 Hash for AES from shared secret
-	sender.dhSharedSecret = getSharedSecret(sender.dhSecret,sender.dhPublicPartner, sender.dhPrime) 
-	sender.SharedSecretHash = generateMD5Hash(sender.dhSharedSecret)
 	
 	sender.messageCounter++
 	wg.Done()
@@ -474,7 +444,9 @@ func receiveMessage(receiver *user) {
 		fmt.Println(receiver.name, "did not receive MAC: ", messageMAC)
 	} else {
 		// Check received messageMAC
-		macVerified := checkMAC([]byte(message), messageMAC, []byte(receiver.SharedSecretHash))
+		MK_temp := sha256.Sum256([]byte(receiver.SharedSecretHash))
+		var MK []byte = MK_temp[:]
+		macVerified := checkMAC([]byte(message), messageMAC, MK)
 		if macVerified == false {
 			fmt.Println("Message MAC INVALID: ", macVerified)
 		}				
@@ -491,9 +463,44 @@ func receiveMessage(receiver *user) {
 	} else {
 			fmt.Printf("Error")
 	}
-
-
 	
+	wg.Done()
+}
+
+
+func initiateRekeying (sender *user) {
+	
+	// INITIATE RE-KEYING
+	sender.dhSecret, sender.dhPublicOwn = getDHSecretAndPublicKey(sender.dhPrime, sender.dhGenerator)
+	// Create MAC of own DH Public Key
+	MK_temp := sha256.Sum256([]byte(sender.SharedSecretHash))
+	var MK []byte = MK_temp[:]
+	DHKeyMAC := generateMAC([]byte(string(sender.dhPublicOwn)), MK)	
+
+	// Send own DH Public Key and its MAC
+	fmt.Println("************************** Re-Keying ***************************")
+	fmt.Println(sender.name, "initiates re-keying and sends new DH Public Key")
+	SenderToReceiverInt <- sender.dhPublicOwn
+	SenderToReceiverVar <- DHKeyMAC
+	// Receive Receiver's DH Public Key and its MAC
+	sender.dhPublicPartner = <-ReceiverToSenderInt
+	DHPublicPartnerMAC := <- ReceiverToSenderVar
+
+	// Verify received MAC
+	DHPartnerMACVerified := checkMAC([]byte(string(sender.dhPublicPartner)), DHPublicPartnerMAC, MK)
+	if DHPartnerMACVerified == false {
+		fmt.Println(sender.name," DH Public MAC Verification: ", DHPartnerMACVerified)
+	}
+
+	// Compute Shared Secret and its MD5 Hash for AES from shared secret
+	sender.dhSharedSecret = getSharedSecret(sender.dhSecret,sender.dhPublicPartner, sender.dhPrime) 
+	sender.SharedSecretHash = generateMD5Hash(sender.dhSharedSecret)
+	
+	wg.Done()
+}
+
+func respondToRekeying (receiver *user) {
+
 	// RECEIVE RE-KEYING
 	// Create own DH Secret and Public Key
 	receiver.dhSecret, receiver.dhPublicOwn = getDHSecretAndPublicKey(receiver.dhPrime, receiver.dhGenerator)
@@ -503,10 +510,9 @@ func receiveMessage(receiver *user) {
 	DHPublicPartnerMAC := <- SenderToReceiverVar
 	
 	// Create MAC of DH Public Key and send it
-	buffer := make([]byte, 100)
-	copy(buffer, []byte(string(receiver.dhPublicOwn)))
-	copy(buffer, message)
-	DHKeyMAC := generateMAC(buffer, []byte(receiver.SharedSecretHash))
+	MK_temp := sha256.Sum256([]byte(receiver.SharedSecretHash))
+	var MK []byte = MK_temp[:]
+	DHKeyMAC := generateMAC([]byte(string(receiver.dhPublicOwn)), MK)
 
 	// Send DH Public Key and its MAC
 	fmt.Println(receiver.name, "answers with new DH Public Key")
@@ -514,11 +520,7 @@ func receiveMessage(receiver *user) {
 	ReceiverToSenderVar <- DHKeyMAC
 	
 	// Verify received MAC
-	buffer2 := make([]byte, 100)
-	copy(buffer2, []byte(string(receiver.dhPublicPartner)))
-	copy(buffer2, message)
-	
-	DHPartnerMACVerified := checkMAC((buffer), DHPublicPartnerMAC, []byte(receiver.SharedSecretHash))
+	DHPartnerMACVerified := checkMAC([]byte(string(receiver.dhPublicPartner)), DHPublicPartnerMAC, MK)
 	if DHPartnerMACVerified == false {
 		fmt.Println(receiver.name, " DH Public MAC Verification: ", DHPartnerMACVerified)
 	}
@@ -566,7 +568,7 @@ func main() {
 	// Create User Objects with partly initial dummy values
 	alice := user{0, "Alice", aliceMessages, 0, &aliceRSAPublicKey, aliceRSAPrivateKey, &bobRSAPublicKey, 0, 0, 0, 0, 0, 0, ""}
 	bob := user{1, "Bob", bobMessages, 0, &bobRSAPublicKey, bobRSAPrivateKey, &aliceRSAPublicKey, 0, 0, 0, 0, 0, 0, ""}
-
+	
 	// Set up initial Diffie-Hellman Parameters
 	wg.Add(1)
 	go initiateDHParameters(&alice)
@@ -574,7 +576,8 @@ func main() {
 	go receiveDHParameters(&bob)
 	wg.Wait()
 	
-	// Send and Receive Messages (Alice sends messages with even, Bob with odd numbers)
+	
+	// Send and Receive Messages (Alice sends messages with even, Bob with odd numbers) and Re-Keying
 	for i := 1; i < 9; i++ {
 		var sender, receiver *user
 		
@@ -586,11 +589,20 @@ func main() {
 			receiver = &alice
 		}
 		
+		// Send Message
 		wg.Add(1)
 		go sendMessage(sender, i)
+		// Receive Message
 		wg.Add(1)
 		go receiveMessage (receiver)
 		wg.Wait()
+		//Re-Keying
+		wg.Add(1)
+		go initiateRekeying(sender)
+		wg.Add(1)
+		go respondToRekeying(receiver)
+		wg.Wait()
 	}
+	
 }
 
